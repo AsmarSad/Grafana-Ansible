@@ -1,0 +1,126 @@
+- name: Create DigitalOcean Droplet and Upload SSH Key
+  hosts: localhost
+  gather_facts: no
+  vars:
+    do_token: "dop_v1_cb367dc98be26444567c587ac68639e28e24f625e82c91d0412df1091c168ebd"
+    ssh_pub_key_path: "~/.ssh/id_rsa.pub"
+    droplet_name: "grafana-server"
+    droplet_region: "nyc3"
+    droplet_size: "s-1vcpu-2gb"
+    droplet_image: "ubuntu-22-04-x64"
+
+  tasks:
+    - name: Upload SSH key to DigitalOcean
+      community.digitalocean.digital_ocean_sshkey:
+        oauth_token: "{{ do_token }}"
+        state: present
+        name: "grafana-ssh-key"
+        ssh_pub_key: "{{ lookup('file', ssh_pub_key_path) }}"
+      register: ssh_key_response
+
+    - name: Set the SSH fingerprint
+      set_fact:
+        ssh_fingerprint: "{{ ssh_key_response.data.ssh_key.fingerprint }}"
+
+    - name: Create a DigitalOcean droplet
+      community.digitalocean.digital_ocean_droplet:
+        oauth_token: "{{ do_token }}"
+        name: "{{ droplet_name }}"
+        region: "{{ droplet_region }}"
+        size: "{{ droplet_size }}"
+        image: "{{ droplet_image }}"
+        ssh_keys: "{{ ssh_fingerprint }}"
+      register: droplet
+
+    - name: Debug droplet information
+      debug:
+        var: droplet
+
+    - name: Wait for the droplet to become reachable
+      wait_for:
+        host: "{{ droplet.data.droplet.networks.v4[0].ip_address }}"
+        port: 22
+        timeout: 300
+      delegate_to: localhost
+
+    - name: Add droplet IP to inventory
+      add_host:
+        name: grafana_droplet
+        ansible_host: "{{ droplet.data.droplet.networks.v4[0].ip_address }}"
+        ansible_user: root
+
+- name: Configure and Install Grafana on the Droplet
+  hosts: grafana_droplet
+  gather_facts: yes
+  become: yes
+  vars:
+    grafana_port: 3000
+    server_name: "{{ ansible_host }}"
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install required packages
+      apt:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - apt-transport-https
+        - software-properties-common
+        - wget
+
+    - name: Add Grafana GPG key
+      apt_key:
+        url: https://packages.grafana.com/gpg.key
+        state: present
+
+    - name: Add Grafana repository
+      apt_repository:
+        repo: "deb https://packages.grafana.com/oss/deb stable main"
+        state: present
+
+    - name: Install Grafana
+      apt:
+        name: grafana
+        state: present
+
+    - name: Enable and start Grafana service
+      systemd:
+        name: grafana-server
+        enabled: yes
+        state: started
+
+    - name: Install Nginx
+      apt:
+        name: nginx
+        state: present
+
+    - name: Configure Nginx for Grafana
+      copy:
+        content: |
+          server {
+              listen 80;
+              server_name {{ server_name }};
+
+              location / {
+                  proxy_pass http://localhost:3000;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+              }
+          }
+        dest: /etc/nginx/sites-available/grafana
+
+    - name: Enable Nginx site
+      file:
+        src: /etc/nginx/sites-available/grafana
+        dest: /etc/nginx/sites-enabled/grafana
+        state: link
+
+    - name: Restart Nginx
+      systemd:
+        name: nginx
+        state: restarted
+
