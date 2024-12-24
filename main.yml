@@ -1,0 +1,9 @@
+- name: Create and Configure DigitalOcean Droplet with Grafana
+  hosts: localhost
+  gather_facts: no
+  vars_files:
+    - secrets.yml  # Encrypted Vault file
+  roles:
+    - provision_droplet
+    - configure_grafana
+

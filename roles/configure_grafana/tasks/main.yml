@@ -1,0 +1,55 @@
+- name: Update apt cache
+  apt:
+    update_cache: yes
+
+- name: Install required packages
+  apt:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - apt-transport-https
+    - software-properties-common
+    - wget
+
+- name: Add Grafana GPG key
+  apt_key:
+    url: https://packages.grafana.com/gpg.key
+    state: present
+
+- name: Add Grafana repository
+  apt_repository:
+    repo: "deb https://packages.grafana.com/oss/deb stable main"
+    state: present
+
+- name: Install Grafana
+  apt:
+    name: grafana
+    state: present
+
+- name: Enable and start Grafana service
+  systemd:
+    name: grafana-server
+    enabled: yes
+    state: started
+
+- name: Install Nginx
+  apt:
+    name: nginx
+    state: present
+
+- name: Configure Nginx for Grafana
+  template:
+    src: nginx.conf.j2
+    dest: /etc/nginx/sites-available/grafana
+
+- name: Enable Nginx site
+  file:
+    src: /etc/nginx/sites-available/grafana
+    dest: /etc/nginx/sites-enabled/grafana
+    state: link
+
+- name: Restart Nginx
+  systemd:
+    name: nginx
+    state: restarted
+
