@@ -25,6 +25,8 @@
   apt:
     name: grafana
     state: present
+  retries: 5
+  delay: 30
 
 - name: Enable and start Grafana service
   systemd:

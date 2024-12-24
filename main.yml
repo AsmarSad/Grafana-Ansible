@@ -1,9 +1,15 @@
-- name: Create and Configure DigitalOcean Droplet with Grafana
+- name: Create DigitalOcean Droplet and Upload SSH Key
   hosts: localhost
   gather_facts: no
   vars_files:
-    - secrets.yml  # Encrypted Vault file
+    - secrets.yml
   roles:
     - provision_droplet
+
+- name: Configure and Install Grafana on the Droplet
+  hosts: grafana_droplet
+  gather_facts: yes
+  become: yes
+  roles:
     - configure_grafana
 
